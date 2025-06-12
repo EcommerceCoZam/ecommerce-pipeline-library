@@ -63,7 +63,7 @@ def call(Map config) {
                     script {
                         echo "🐳 Building and pushing Docker image..."
 
-                        def registryHost = "us-central1-docker.pkg.dev"
+                        def registryHost = "southamerica-east1-docker.pkg.dev"
                         def registry = "${registryHost}/certain-perigee-459722-b4/ecommerce-microservices"
                         def imageName = "${registry}/${config.serviceName}"
                         def fullImageTag = "${imageName}:${env.IMAGE_TAG}"
