@@ -19,7 +19,7 @@ def call(Map config) {
         
         tools {
             maven 'Maven-3.8.6'
-            jdk 'Java-17'
+            jdk 'Java-11'
         }
         
         stages {
@@ -58,15 +58,27 @@ def call(Map config) {
                 }
             }
             
-            stage('Docker Build') {
+            stage('Docker Build & Push') {
                 steps {
                     script {
-                        echo "🐳 Building Docker image..."
-                        def imageName = "${config.serviceName}:${env.IMAGE_TAG}"
-                        docker.build(imageName, "-f Dockerfile .")
+                        echo "🐳 Building and pushing Docker image..."
                         
-                        // Tag by environment
-                        docker.image(imageName).tag("${config.serviceName}:${params.ENVIRONMENT}-latest")
+                        // Configure registry
+                        def registry = "us-central1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices"
+                        def imageName = "${registry}/${config.serviceName}"
+                        def fullImageTag = "${imageName}:${env.IMAGE_TAG}"
+                        
+                        // Build image
+                        def dockerImage = docker.build(fullImageTag, "-f Dockerfile .")
+                        
+                        // Push to registry
+                        docker.withRegistry("https://${registry}", 'gcp-registry-credentials') {
+                            dockerImage.push(env.IMAGE_TAG)
+                            dockerImage.push("${params.ENVIRONMENT}-latest")
+                        }
+                        
+                        // Save for use in deploy
+                        env.FULL_IMAGE_NAME = fullImageTag
                     }
                 }
             }
@@ -93,9 +105,31 @@ def call(Map config) {
 def deployToEnvironment(config, environment) {
     echo "🚀 Deploying to ${environment}..."
     
+    // Configure Kubernetes context according to environment
+    def kubeContexts = [
+        'dev': 'aks-ecommercecozam-dev',
+        'stage': 'aks-ecommercecozam-stage', 
+        'prod': 'aks-ecommercecozam-prod'
+    ]
+    
+    def kubeContext = kubeContexts[environment]
+    if (!kubeContext) {
+        error("Unknown environment: ${environment}")
+    }
+    
     sh """
+        # Switch Kubernetes context
+        kubectl config use-context ${kubeContext}
+        
+        # Check connection
+        kubectl cluster-info
+        
+        # Deploy con Helm
+        git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
         cd helm
-        ./deploy-helm.sh ${environment} upgrade || ./deploy-helm.sh ${environment} install
+        ./deploy-helm.sh ${environment} upgrade \
+            --set global.imageTag=${env.IMAGE_TAG} \
+            --set ${config.serviceName}.image.repository=us-central1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices/${config.serviceName}
     """
 }
 
