@@ -39,7 +39,7 @@ def call(Map config) {
                         }
                         post {
                             always {
-                                junit testResultsPattern: '**/target/surefire-reports/*.xml'
+                                junit testResults: '**/target/surefire-reports/*.xml'
                             }
                         }
                     }
