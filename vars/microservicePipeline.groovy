@@ -15,6 +15,7 @@ def call(Map config) {
             SERVICE_PORT = "${config.servicePort}"
             IMAGE_TAG = "${env.BUILD_NUMBER}-${env.GIT_COMMIT.take(7)}"
             MAVEN_OPTS = '-Xmx512m'
+            REGISTRY = "southamerica-east1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices"
         }
         
         tools {
@@ -64,8 +65,7 @@ def call(Map config) {
                         echo "🐳 Building and pushing Docker image..."
 
                         def registryHost = "southamerica-east1-docker.pkg.dev"
-                        def registry = "${registryHost}/certain-perigee-459722-b4/ecommerce-microservices"
-                        def imageName = "${registry}/${config.serviceName}"
+                        def imageName = "${env.REGISTRY}/${config.serviceName}"
                         def fullImageTag = "${imageName}:${env.IMAGE_TAG}"
 
                         withCredentials([file(credentialsId: 'gcp-registry-credentials', variable: 'GCP_KEY')]) {
@@ -146,7 +146,7 @@ def deployToEnvironment(config, environment) {
             --set global.environment=${environment} \\
             --set global.imageTag=${env.IMAGE_TAG} \\
             --set global.imagePullPolicy=Always \\
-            --set image.repository=${registry}/${config.serviceName} \\
+            --set image.repository=${env.REGISTRY}/${config.serviceName} \\
             --set image.tag=${env.IMAGE_TAG} \\
             --wait \\
             --timeout=5m
