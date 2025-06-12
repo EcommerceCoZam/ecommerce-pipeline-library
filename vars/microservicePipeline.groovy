@@ -84,7 +84,6 @@ def call(Map config) {
                             """
                         }
 
-                        // Save for use in deploy
                         env.FULL_IMAGE_NAME = fullImageTag
                     }
                 }
@@ -112,7 +111,6 @@ def call(Map config) {
 def deployToEnvironment(config, environment) {
     echo "🚀 Deploying to ${environment}..."
     
-    // Configure Kubernetes context according to environment
     def kubeContexts = [
         'dev': 'aks-ecommercecozam-dev',
         'stage': 'aks-ecommercecozam-stage', 
@@ -124,37 +122,51 @@ def deployToEnvironment(config, environment) {
         error("Unknown environment: ${environment}")
     }
     
-    sh """
-        # Switch Kubernetes context
-        kubectl config use-context ${kubeContext}
-        
-        # Check connection
-        kubectl cluster-info
-        
-        # Clean previous clone if exists
-        rm -rf helm
-        git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
-        cd helm
-        
-        # Create namespace if it doesn't exist
-        kubectl create namespace ecommerce --dry-run=client -o yaml | kubectl apply -f -
-        
-        # Deploy/upgrade specific service with Helm
-        helm upgrade --install ecommerce-app-${environment}-${config.serviceName} \\
-            ./ecommerce-app/charts/${config.serviceName} \\
-            -n ecommerce \\
-            --set global.environment=${environment} \\
-            --set global.imageTag=${env.IMAGE_TAG} \\
-            --set global.imagePullPolicy=Always \\
-            --set image.repository=${env.REGISTRY}/${config.serviceName} \\
-            --set image.tag=${env.IMAGE_TAG} \\
-            --wait \\
-            --timeout=5m
+    withCredentials([file(credentialsId: 'gcp-registry-credentials', variable: 'GCP_KEY')]) {
+        sh """
+            # Switch Kubernetes context
+            kubectl config use-context ${kubeContext}
             
-        # Verify deployment
-        kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
-        kubectl rollout status deployment/ecommerce-app-${environment}-${config.serviceName}-${config.serviceName} -n ecommerce
-    """
+            # Check connection
+            kubectl cluster-info
+            
+            # Create namespace if it doesn't exist
+            kubectl create namespace ecommerce --dry-run=client -o yaml | kubectl apply -f -
+            
+            # Create or update Image Pull Secret
+            echo '🔐 Creating/updating image pull secret...'
+            kubectl create secret docker-registry gcp-registry-secret \\
+                --docker-server=southamerica-east1-docker.pkg.dev \\
+                --docker-username=_json_key \\
+                --docker-password="\$(cat \$GCP_KEY)" \\
+                --docker-email=jenkins@ecommerce-cozam.com \\
+                -n ecommerce \\
+                --dry-run=client -o yaml | kubectl apply -f -
+            
+            kubectl patch serviceaccount default -n ecommerce -p '{"imagePullSecrets": [{"name": "gcp-registry-secret"}]}'
+            
+            # Clean previous clone if exists
+            rm -rf helm
+            git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
+            cd helm
+            
+            # Deploy/upgrade specific service with Helm
+            helm upgrade --install ecommerce-app-${environment}-${config.serviceName} \\
+                ./ecommerce-app/charts/${config.serviceName} \\
+                -n ecommerce \\
+                --set global.environment=${environment} \\
+                --set global.imageTag=${env.IMAGE_TAG} \\
+                --set global.imagePullPolicy=Always \\
+                --set image.repository=${env.REGISTRY}/${config.serviceName} \\
+                --set image.tag=${env.IMAGE_TAG} \\
+                --wait \\
+                --timeout=5m
+                
+            # Verify deployment
+            kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
+            kubectl rollout status deployment/ecommerce-app-${environment}-${config.serviceName}-${config.serviceName} -n ecommerce
+        """
+    }
 }
 
 def generateReleaseNotes(config) {
