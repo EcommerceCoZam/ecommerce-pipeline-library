@@ -62,22 +62,28 @@ def call(Map config) {
                 steps {
                     script {
                         echo "🐳 Building and pushing Docker image..."
-                        
-                        // Configure registry
+
                         def registryHost = "us-central1-docker.pkg.dev"
                         def registry = "${registryHost}/certain-perigee-459722-b4/ecommerce-microservices"
                         def imageName = "${registry}/${config.serviceName}"
                         def fullImageTag = "${imageName}:${env.IMAGE_TAG}"
-                        
-                        // Build image
-                        def dockerImage = docker.build(fullImageTag, "-f Dockerfile .")
-                        
-                        // Push to registry
-                        docker.withRegistry("https://${registry}", 'gcp-registry-credentials') {
-                            dockerImage.push(env.IMAGE_TAG)
-                            dockerImage.push("${params.ENVIRONMENT}-latest")
+
+                        withCredentials([file(credentialsId: 'gcp-registry-credentials', variable: 'GCP_KEY')]) {
+                            sh """
+                                echo '🔐 Autenticando con GCP...'
+                                gcloud auth activate-service-account --key-file=\$GCP_KEY
+                                gcloud auth configure-docker ${registryHost} --quiet
+
+                                echo '🐳 Construyendo imagen Docker...'
+                                docker build -t ${fullImageTag} .
+
+                                echo '📤 Pusheando imagen...'
+                                docker push ${fullImageTag}
+                                docker tag ${fullImageTag} ${imageName}:${params.ENVIRONMENT}-latest
+                                docker push ${imageName}:${params.ENVIRONMENT}-latest
+                            """
                         }
-                        
+
                         // Save for use in deploy
                         env.FULL_IMAGE_NAME = fullImageTag
                     }
