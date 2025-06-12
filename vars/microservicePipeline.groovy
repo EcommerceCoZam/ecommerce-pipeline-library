@@ -131,12 +131,28 @@ def deployToEnvironment(config, environment) {
         # Check connection
         kubectl cluster-info
         
-        # Deploy con Helm
+        # Clone Helm charts
         git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
         cd helm
-        ./deploy-helm.sh ${environment} upgrade \
-            --set global.imageTag=${env.IMAGE_TAG} \
-            --set ${config.serviceName}.image.repository=us-central1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices/${config.serviceName}
+        
+        # Create namespace if it doesn't exist
+        kubectl create namespace ecommerce --dry-run=client -o yaml | kubectl apply -f -
+        
+        # Deploy/upgrade specific service with Helm
+        helm upgrade --install ecommerce-app-${environment}-${config.serviceName} \\
+            ./ecommerce-app/charts/${config.serviceName} \\
+            -n ecommerce \\
+            --set global.environment=${environment} \\
+            --set global.imageTag=${env.IMAGE_TAG} \\
+            --set global.imagePullPolicy=Always \\
+            --set image.repository=us-central1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices/${config.serviceName} \\
+            --set image.tag=${env.IMAGE_TAG} \\
+            --wait \\
+            --timeout=5m
+            
+        # Verify deployment
+        kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
+        kubectl rollout status deployment/ecommerce-app-${environment}-${config.serviceName}-${config.serviceName} -n ecommerce
     """
 }
 
