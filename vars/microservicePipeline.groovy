@@ -146,7 +146,7 @@ def deployToEnvironment(config, environment) {
             --set global.environment=${environment} \\
             --set global.imageTag=${env.IMAGE_TAG} \\
             --set global.imagePullPolicy=Always \\
-            --set image.repository=us-central1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices/${config.serviceName} \\
+            --set image.repository=${registry}/${config.serviceName} \\
             --set image.tag=${env.IMAGE_TAG} \\
             --wait \\
             --timeout=5m
