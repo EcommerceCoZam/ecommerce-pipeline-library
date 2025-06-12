@@ -131,7 +131,8 @@ def deployToEnvironment(config, environment) {
         # Check connection
         kubectl cluster-info
         
-        # Clone Helm charts
+        # Clean previous clone if exists
+        rm -rf helm
         git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
         cd helm
         
