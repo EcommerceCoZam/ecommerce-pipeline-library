@@ -16,6 +16,8 @@ def call(Map config) {
             SERVICE_NAME = "${config.serviceName}"
             BUILD_TOOL = "${config.buildTool}"
             HAS_UNIT_TESTS = "${config.hasUnitTests}"
+            // Fix SonarQube project key - replace invalid characters
+            SONAR_PROJECT_KEY = "${env.JOB_NAME}".replaceAll('/', '-').replaceAll(' ', '-')
         }
         
         stages {
@@ -175,8 +177,8 @@ def call(Map config) {
                                                 sh '''
                                                     mvn sonar:sonar \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.exclusions="**/*" \
                                                         -Dsonar.cpd.exclusions="**/*"
@@ -187,16 +189,16 @@ def call(Map config) {
                                                 if [ -f "./gradlew" ]; then
                                                     ./gradlew sonarqube \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.exclusions="**/*" \
                                                         -Dsonar.cpd.exclusions="**/*"
                                                 else
                                                     gradle sonarqube \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.exclusions="**/*" \
                                                         -Dsonar.cpd.exclusions="**/*"
@@ -219,8 +221,8 @@ def call(Map config) {
                                                     # Run SonarQube analysis
                                                     mvn sonar:sonar \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
                                                 '''
@@ -234,8 +236,8 @@ def call(Map config) {
                                                     # Run SonarQube analysis
                                                     ./gradlew sonarqube \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
                                                 else
@@ -245,8 +247,8 @@ def call(Map config) {
                                                     # Run SonarQube analysis
                                                     gradle sonarqube \
                                                         -Dsonar.host.url=${SONARQUBE_URL} \
-                                                        -Dsonar.projectKey=${JOB_NAME} \
-                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectKey=${SONAR_PROJECT_KEY} \
+                                                        -Dsonar.projectName="${SERVICE_NAME}" \
                                                         -Dsonar.projectVersion=${BUILD_NUMBER} \
                                                         -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
                                                 fi
