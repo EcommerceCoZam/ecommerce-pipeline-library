@@ -642,7 +642,7 @@ def deployToEnvironment(config, environment) {
             echo '📥 Cloning Kubernetes manifests repository...'
             rm -rf k8s-manifests
             git clone https://github.com/EcommerceCoZam/k8s-manifests.git k8s-manifests
-            cd k8s-manifests
+            cd k8s-manifests/k8s-manifests
             
             # Check if service manifest exists
             if [ ! -f "${config.serviceName}/${config.serviceName}-deployment.yaml" ]; then
