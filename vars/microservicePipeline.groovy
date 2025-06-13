@@ -8,8 +8,7 @@ def call(Map config) {
         }
         
         environment {
-            REGISTRY = "southamerica-east1-docker.pkg.dev/ecommercecozam/ecommerce-registry"
-            IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
+            REGISTRY = "southamerica-east1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices"            IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
             TARGET_ENV = determineEnvironment()
             TRIVY_SERVER = "http://34.73.71.30:9999"
             SONARQUBE_URL = "http://34.73.71.30:9000"
