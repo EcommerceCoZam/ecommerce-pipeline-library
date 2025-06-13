@@ -322,6 +322,22 @@ def call(Map config) {
                     }
                 }
             }
+
+            stage('Docker Build & Security Scan') {
+                steps {
+                    script {
+                        // Copy managed settings.xml for Docker build if Maven project
+                        if (env.BUILD_TOOL == 'maven') {
+                            configFileProvider([configFile(fileId: '155195e2-78e9-4ecc-b3d9-5a7d3f0101cf', targetLocation: 'settings.xml')]) {
+                                echo "📄 Copied managed settings.xml for Docker build"
+                                buildAndSecurityScanImage(config)
+                            }
+                        } else {
+                            buildAndSecurityScanImage(config)
+                        }
+                    }
+                }
+            }
             
             stage('Environment-Specific Tests') {
                 when {
