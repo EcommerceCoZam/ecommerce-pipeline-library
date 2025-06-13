@@ -635,19 +635,52 @@ def deployToEnvironment(config, environment) {
                 --docker-email=jenkins@ecommerce-cozam.com \\
                 -n ecommerce \\
                 --dry-run=client -o yaml | kubectl apply -f -
-            
             kubectl patch serviceaccount default -n ecommerce -p '{"imagePullSecrets": [{"name": "gcp-registry-secret"}]}'
             
             # Clone Kubernetes manifests repository
             echo '📥 Cloning Kubernetes manifests repository...'
             rm -rf k8s-manifests
             git clone https://github.com/EcommerceCoZam/k8s-manifests.git k8s-manifests
-            cd k8s-manifests/k8s-manifests
+            cd k8s-manifests
             
             # Check if service manifest exists
             if [ ! -f "${config.serviceName}/${config.serviceName}-deployment.yaml" ]; then
                 echo "❌ Deployment manifest not found for ${config.serviceName}"
                 exit 1
+            fi
+            
+            echo '🧹 Checking for existing conflicting resources...'
+            
+            # Check if deployment exists and has conflicting selectors
+            if kubectl get deployment ${config.serviceName} -n ecommerce 2>/dev/null; then
+                echo "⚠️ Found existing deployment '${config.serviceName}'"
+                
+                # Get existing selectors
+                EXISTING_SELECTORS=\$(kubectl get deployment ${config.serviceName} -n ecommerce -o jsonpath='{.spec.selector.matchLabels}')
+                echo "Existing selectors: \$EXISTING_SELECTORS"
+                
+                # Check if this deployment was managed by Helm (conflicting labels)
+                if kubectl get deployment ${config.serviceName} -n ecommerce -o jsonpath='{.metadata.labels.app\\.kubernetes\\.io/managed-by}' | grep -q "Helm" || \\
+                   kubectl get deployment ${config.serviceName} -n ecommerce -o jsonpath='{.spec.selector.matchLabels.app\\.kubernetes\\.io/instance}' | grep -q ".*"; then
+                    echo "🗑️ Removing existing Helm-managed or conflicting deployment..."
+                    kubectl delete deployment ${config.serviceName} -n ecommerce
+                    echo "⏳ Waiting for deployment to be fully deleted..."
+                    kubectl wait --for=delete deployment/${config.serviceName} -n ecommerce --timeout=120s || true
+                    sleep 10
+                else
+                    echo "✅ Deployment exists but appears compatible, updating image only..."
+                    # Try to update just the image using kubectl set image
+                    kubectl set image deployment/${config.serviceName} \\
+                        ${config.serviceName}=${env.REGISTRY}/${config.serviceName}:${env.IMAGE_TAG} \\
+                        -n ecommerce
+                    
+                    echo "⏳ Waiting for rollout to complete..."
+                    kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
+                    
+                    echo "✅ Image updated successfully via kubectl set image"
+                    kubectl get deployment ${config.serviceName} -n ecommerce -o wide
+                    return 0
+                fi
             fi
             
             echo '🔄 Updating image in deployment manifest...'
@@ -678,7 +711,7 @@ def deployToEnvironment(config, environment) {
             # Verify deployment
             echo "✅ Verifying deployment..."
             kubectl get pods -n ecommerce -l io.kompose.service=${config.serviceName}
-            kubectl get deployment ${config.serviceName} -n ecommerce
+            kubectl get deployment ${config.serviceName} -n ecommerce -o wide
             kubectl get service ${config.serviceName} -n ecommerce
             
             # Clean up temporary file
@@ -688,6 +721,7 @@ def deployToEnvironment(config, environment) {
         """
     }
 }
+
 def generateReleaseNotes(serviceName, buildTool) {
     script {
         def version = env.TAG_NAME ?: "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
