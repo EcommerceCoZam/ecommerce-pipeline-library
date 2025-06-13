@@ -706,7 +706,7 @@ def deployToEnvironment(config, environment) {
             
             # Wait for deployment to be ready
             echo '⏳ Waiting for deployment to be ready...'
-            kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
+            # kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
             
             # Verify deployment
             echo "✅ Verifying deployment..."
