@@ -700,6 +700,43 @@ def deployToEnvironment(config, environment) {
             git clone https://github.com/EcommerceCoZam/ecommerce-helm-charts.git helm
             cd helm
             
+            echo "🧹 Cleaning existing non-Helm resources for ${config.serviceName}..."
+            
+            # Check if Helm release exists
+            if helm list -n ecommerce | grep -q "^${config.serviceName}\\s"; then
+                echo "✅ Helm release '${config.serviceName}' exists, proceeding with upgrade..."
+            else
+                echo "🔄 No Helm release found, checking for existing resources..."
+                
+                # Check and remove existing resources that might conflict
+                if kubectl get service ${config.serviceName} -n ecommerce 2>/dev/null; then
+                    echo "⚠️ Found existing service '${config.serviceName}', checking ownership..."
+                    if ! kubectl get service ${config.serviceName} -n ecommerce -o jsonpath='{.metadata.labels.app\\.kubernetes\\.io/managed-by}' | grep -q "Helm"; then
+                        echo "🗑️ Removing non-Helm service '${config.serviceName}'..."
+                        kubectl delete service ${config.serviceName} -n ecommerce || true
+                    fi
+                fi
+                
+                if kubectl get deployment ${config.serviceName} -n ecommerce 2>/dev/null; then
+                    echo "⚠️ Found existing deployment '${config.serviceName}', checking ownership..."
+                    if ! kubectl get deployment ${config.serviceName} -n ecommerce -o jsonpath='{.metadata.labels.app\\.kubernetes\\.io/managed-by}' | grep -q "Helm"; then
+                        echo "🗑️ Removing non-Helm deployment '${config.serviceName}'..."
+                        kubectl delete deployment ${config.serviceName} -n ecommerce || true
+                    fi
+                fi
+                
+                # Check for old releases with different names
+                OLD_RELEASE=\$(helm list -n ecommerce | grep "${config.serviceName}" | grep -v "^${config.serviceName}\\s" | awk '{print \$1}' | head -1)
+                if [ ! -z "\$OLD_RELEASE" ]; then
+                    echo "🔄 Found old Helm release '\$OLD_RELEASE', uninstalling..."
+                    helm uninstall \$OLD_RELEASE -n ecommerce || true
+                    echo "⏳ Waiting for resources to be cleaned up..."
+                    sleep 30
+                fi
+            fi
+            
+            echo "🚀 Deploying ${config.serviceName} with Helm..."
+            
             # Deploy/upgrade specific service with SIMPLE NAME
             helm upgrade --install ${config.serviceName} \\
                 ./ecommerce-app/charts/${config.serviceName} \\
@@ -716,8 +753,14 @@ def deployToEnvironment(config, environment) {
                 --timeout=5m
             
             # Verify deployment with simplified names
+            echo "✅ Verifying deployment..."
             kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
-            kubectl rollout status deployment/${config.serviceName} -n ecommerce
+            kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
+            
+            # Final status check
+            echo "📊 Final status:"
+            helm list -n ecommerce | grep ${config.serviceName}
+            kubectl get all -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
         """
     }
 }
