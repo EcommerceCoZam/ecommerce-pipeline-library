@@ -623,7 +623,7 @@ def deployToEnvironment(config, environment) {
     echo "🚀 Deploying to ${environment}..."
     
     def kubeContexts = [
-        'dev': 'aks-ecommercecozam-dev',
+        'develop': 'aks-ecommercecozam-dev',
         'stage': 'aks-ecommercecozam-stage', 
         'prod': 'aks-ecommercecozam-prod'
     ]
