@@ -373,7 +373,7 @@ def call(Map config) {
             stage('Deploy') {
                 when {
                     anyOf {
-                        branch 'dev'
+                        branch 'develop'
                         branch 'release/*'
                         branch 'main'
                         buildingTag()
@@ -443,8 +443,8 @@ def getServiceType(serviceName) {
 }
 
 def determineEnvironment() {
-    if (env.BRANCH_NAME == 'dev') {
-        return 'dev'
+    if (env.BRANCH_NAME == 'develop') {
+        return 'develop'
     } else if (env.BRANCH_NAME.startsWith('release/')) {
         return 'stage'
     } else if (env.BRANCH_NAME == 'main' || env.TAG_NAME) {
@@ -531,7 +531,7 @@ def buildAndSecurityScanImage(config) {
 
 def runEnvironmentTests(config) {
     switch(env.TARGET_ENV) {
-        case 'dev':
+        case 'develop':
             echo "✅ DEV: Running basic health checks..."
             sh '''
                 echo "Basic connectivity tests..."
