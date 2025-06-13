@@ -2,6 +2,11 @@ def call(Map config) {
     pipeline {
         agent any
         
+        tools {
+            maven 'Maven-3.8.6'
+            gradle 'Gradle'
+        }
+        
         environment {
             REGISTRY = "southamerica-east1-docker.pkg.dev/ecommercecozam/ecommerce-registry"
             IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
@@ -35,19 +40,34 @@ def call(Map config) {
                         }
                         steps {
                             echo "🧪 Running unit tests for ${config.serviceName}..."
-                            sh '''
-                                ./gradlew test
-                                ./gradlew jacocoTestReport
-                            '''
+                            script {
+                                if (config.buildTool == 'maven') {
+                                    withMaven(
+                                        maven: 'Maven-3.8.6',
+                                        mavenSettingsConfig: 'settings-github'
+                                    ) {
+                                        sh '''
+                                            mvn test
+                                            mvn jacoco:report
+                                        '''
+                                    }
+                                } else {
+                                    // Gradle build
+                                    sh '''
+                                        ./gradlew test
+                                        ./gradlew jacocoTestReport
+                                    '''
+                                }
+                            }
                         }
                         post {
                             always {
-                                junit 'build/test-results/test/*.xml'
+                                junit 'target/surefire-reports/*.xml, build/test-results/test/*.xml'
                                 publishHTML([
                                     allowMissing: false,
                                     alwaysLinkToLastBuild: true,
                                     keepAll: true,
-                                    reportDir: 'build/reports/jacoco/test/html',
+                                    reportDir: config.buildTool == 'maven' ? 'target/site/jacoco' : 'build/reports/jacoco/test/html',
                                     reportFiles: 'index.html',
                                     reportName: 'Code Coverage Report'
                                 ])
@@ -58,7 +78,19 @@ def call(Map config) {
                     stage('Build Application') {
                         steps {
                             echo "🔨 Building ${config.serviceName}..."
-                            sh './gradlew build -x test'
+                            script {
+                                if (config.buildTool == 'maven') {
+                                    withMaven(
+                                        maven: 'Maven-3.8.6',
+                                        mavenSettingsConfig: 'settings-github'
+                                    ) {
+                                        sh 'mvn clean package -DskipTests'
+                                    }
+                                } else {
+                                    // Gradle build
+                                    sh './gradlew build -x test'
+                                }
+                            }
                         }
                     }
                     
@@ -92,31 +124,68 @@ def call(Map config) {
                                 if (getServiceType(config.serviceName) == 'infrastructure') {
                                     echo "🔍 Running SonarQube analysis for infrastructure service (no coverage)..."
                                     withSonarQubeEnv('SonarQube') {
-                                        sh '''
-                                            ./gradlew sonarqube \
-                                                -Dsonar.host.url=${SONARQUBE_URL} \
-                                                -Dsonar.projectKey=${JOB_NAME} \
-                                                -Dsonar.projectName="${JOB_NAME}" \
-                                                -Dsonar.projectVersion=${BUILD_NUMBER} \
-                                                -Dsonar.coverage.exclusions="**/*" \
-                                                -Dsonar.cpd.exclusions="**/*"
-                                        '''
+                                        if (config.buildTool == 'maven') {
+                                            withMaven(
+                                                maven: 'Maven-3.8.6',
+                                                mavenSettingsConfig: 'settings-github'
+                                            ) {
+                                                sh '''
+                                                    mvn sonar:sonar \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.exclusions="**/*" \
+                                                        -Dsonar.cpd.exclusions="**/*"
+                                                '''
+                                            }
+                                        } else {
+                                            sh '''
+                                                ./gradlew sonarqube \
+                                                    -Dsonar.host.url=${SONARQUBE_URL} \
+                                                    -Dsonar.projectKey=${JOB_NAME} \
+                                                    -Dsonar.projectName="${JOB_NAME}" \
+                                                    -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                    -Dsonar.coverage.exclusions="**/*" \
+                                                    -Dsonar.cpd.exclusions="**/*"
+                                            '''
+                                        }
                                     }
                                 } else {
                                     echo "🔍 Running SonarQube analysis with coverage for business service..."
                                     withSonarQubeEnv('SonarQube') {
-                                        sh '''
-                                            # Generate Jacoco report first
-                                            ./gradlew jacocoTestReport
-                                            
-                                            # Run SonarQube analysis
-                                            ./gradlew sonarqube \
-                                                -Dsonar.host.url=${SONARQUBE_URL} \
-                                                -Dsonar.projectKey=${JOB_NAME} \
-                                                -Dsonar.projectName="${JOB_NAME}" \
-                                                -Dsonar.projectVersion=${BUILD_NUMBER} \
-                                                -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
-                                        '''
+                                        if (config.buildTool == 'maven') {
+                                            withMaven(
+                                                maven: 'Maven-3.8.6',
+                                                mavenSettingsConfig: 'settings-github'
+                                            ) {
+                                                sh '''
+                                                    # Generate Jacoco report first
+                                                    mvn jacoco:report
+                                                    
+                                                    # Run SonarQube analysis
+                                                    mvn sonar:sonar \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.jacoco.xmlReportPaths=target/site/jacoco/jacoco.xml
+                                                '''
+                                            }
+                                        } else {
+                                            sh '''
+                                                # Generate Jacoco report first
+                                                ./gradlew jacocoTestReport
+                                                
+                                                # Run SonarQube analysis
+                                                ./gradlew sonarqube \
+                                                    -Dsonar.host.url=${SONARQUBE_URL} \
+                                                    -Dsonar.projectKey=${JOB_NAME} \
+                                                    -Dsonar.projectName="${JOB_NAME}" \
+                                                    -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                    -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
+                                            '''
+                                        }
                                     }
                                 }
                             }
@@ -124,7 +193,13 @@ def call(Map config) {
                         post {
                             always {
                                 // Archive SonarQube reports
-                                archiveArtifacts artifacts: 'build/reports/jacoco/**/*', allowEmptyArchive: true
+                                script {
+                                    if (config.buildTool == 'maven') {
+                                        archiveArtifacts artifacts: 'target/site/jacoco/**/*', allowEmptyArchive: true
+                                    } else {
+                                        archiveArtifacts artifacts: 'build/reports/jacoco/**/*', allowEmptyArchive: true
+                                    }
+                                }
                             }
                         }
                     }
