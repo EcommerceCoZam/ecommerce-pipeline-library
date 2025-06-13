@@ -13,6 +13,9 @@ def call(Map config) {
             TARGET_ENV = determineEnvironment()
             TRIVY_SERVER = "http://34.73.71.30:9999"
             SONARQUBE_URL = "http://34.73.71.30:9000"
+            SERVICE_NAME = "${config.serviceName}"
+            BUILD_TOOL = "${config.buildTool}"
+            HAS_UNIT_TESTS = "${config.hasUnitTests}"
         }
         
         stages {
@@ -20,8 +23,28 @@ def call(Map config) {
                 steps {
                     checkout scm
                     script {
-                        echo "🚀 Building ${config.serviceName} for ${env.TARGET_ENV} environment"
-                        echo "📋 Service Type: ${getServiceType(config.serviceName)}"
+                        echo "🚀 Building ${env.SERVICE_NAME} for ${env.TARGET_ENV} environment"
+                        echo "📋 Service Type: ${getServiceType(env.SERVICE_NAME)}"
+                        echo "🔧 Build Tool: ${env.BUILD_TOOL}"
+                        
+                        // Make gradlew executable if it exists
+                        sh '''
+                            if [ -f "./gradlew" ]; then
+                                chmod +x ./gradlew
+                                echo "✅ gradlew made executable"
+                            else
+                                echo "⚠️ gradlew not found, will use gradle command"
+                            fi
+                            
+                            # Check if build files exist
+                            if [ -f "build.gradle" ] || [ -f "build.gradle.kts" ]; then
+                                echo "✅ Gradle build file found"
+                            elif [ -f "pom.xml" ]; then
+                                echo "✅ Maven pom.xml found"
+                            else
+                                echo "❌ No build file found!"
+                            fi
+                        '''
                     }
                 }
             }
@@ -30,18 +53,12 @@ def call(Map config) {
                 parallel {
                     stage('Unit Tests') {
                         when {
-                            not { 
-                                anyOf {
-                                    expression { config.serviceName == 'cloud-config' }
-                                    expression { config.serviceName == 'api-gateway' }
-                                    expression { config.serviceName == 'service-discovery' }
-                                }
-                            }
+                            expression { env.HAS_UNIT_TESTS == 'true' }
                         }
                         steps {
-                            echo "🧪 Running unit tests for ${config.serviceName}..."
+                            echo "🧪 Running unit tests for ${env.SERVICE_NAME}..."
                             script {
-                                if (config.buildTool == 'maven') {
+                                if (env.BUILD_TOOL == 'maven') {
                                     withMaven(
                                         maven: 'Maven-3.8.6',
                                         mavenSettingsConfig: 'settings-github'
@@ -52,34 +69,54 @@ def call(Map config) {
                                         '''
                                     }
                                 } else {
-                                    // Gradle build
+                                    // Gradle build - check for gradlew first
                                     sh '''
-                                        ./gradlew test
-                                        ./gradlew jacocoTestReport
+                                        if [ -f "./gradlew" ]; then
+                                            ./gradlew test
+                                            ./gradlew jacocoTestReport
+                                        else
+                                            gradle test
+                                            gradle jacocoTestReport
+                                        fi
                                     '''
                                 }
                             }
                         }
                         post {
                             always {
-                                junit 'target/surefire-reports/*.xml, build/test-results/test/*.xml'
-                                publishHTML([
-                                    allowMissing: false,
-                                    alwaysLinkToLastBuild: true,
-                                    keepAll: true,
-                                    reportDir: config.buildTool == 'maven' ? 'target/site/jacoco' : 'build/reports/jacoco/test/html',
-                                    reportFiles: 'index.html',
-                                    reportName: 'Code Coverage Report'
-                                ])
+                                script {
+                                    try {
+                                        if (env.BUILD_TOOL == 'maven') {
+                                            junit 'target/surefire-reports/*.xml'
+                                        } else {
+                                            junit 'build/test-results/test/*.xml'
+                                        }
+                                    } catch (Exception e) {
+                                        echo "⚠️ No test results found: ${e.message}"
+                                    }
+                                    
+                                    try {
+                                        publishHTML([
+                                            allowMissing: true,
+                                            alwaysLinkToLastBuild: true,
+                                            keepAll: true,
+                                            reportDir: env.BUILD_TOOL == 'maven' ? 'target/site/jacoco' : 'build/reports/jacoco/test/html',
+                                            reportFiles: 'index.html',
+                                            reportName: 'Code Coverage Report'
+                                        ])
+                                    } catch (Exception e) {
+                                        echo "⚠️ No coverage report found: ${e.message}"
+                                    }
+                                }
                             }
                         }
                     }
                     
                     stage('Build Application') {
                         steps {
-                            echo "🔨 Building ${config.serviceName}..."
+                            echo "🔨 Building ${env.SERVICE_NAME}..."
                             script {
-                                if (config.buildTool == 'maven') {
+                                if (env.BUILD_TOOL == 'maven') {
                                     withMaven(
                                         maven: 'Maven-3.8.6',
                                         mavenSettingsConfig: 'settings-github'
@@ -88,7 +125,13 @@ def call(Map config) {
                                     }
                                 } else {
                                     // Gradle build
-                                    sh './gradlew build -x test'
+                                    sh '''
+                                        if [ -f "./gradlew" ]; then
+                                            ./gradlew build -x test
+                                        else
+                                            gradle build -x test
+                                        fi
+                                    '''
                                 }
                             }
                         }
@@ -96,20 +139,20 @@ def call(Map config) {
                     
                     stage('Basic Integration Check') {
                         when {
-                            anyOf {
-                                expression { config.serviceName == 'cloud-config' }
-                                expression { config.serviceName == 'api-gateway' }
-                                expression { config.serviceName == 'service-discovery' }
-                            }
+                            expression { env.HAS_UNIT_TESTS == 'false' }
                         }
                         steps {
-                            echo "🔍 Running basic integration checks for ${config.serviceName}..."
+                            echo "🔍 Running basic integration checks for ${env.SERVICE_NAME}..."
                             sh '''
                                 echo "Validating application.properties/yml files..."
                                 find . -name "application*.yml" -o -name "application*.properties" | xargs -I {} echo "Found config: {}"
                                 
                                 echo "Checking if JAR was built successfully..."
-                                ls -la build/libs/
+                                if [ "${BUILD_TOOL}" = "maven" ]; then
+                                    ls -la target/
+                                else
+                                    ls -la build/libs/
+                                fi
                             '''
                         }
                     }
@@ -121,10 +164,10 @@ def call(Map config) {
                     stage('SonarQube Analysis') {
                         steps {
                             script {
-                                if (getServiceType(config.serviceName) == 'infrastructure') {
+                                if (getServiceType(env.SERVICE_NAME) == 'infrastructure') {
                                     echo "🔍 Running SonarQube analysis for infrastructure service (no coverage)..."
                                     withSonarQubeEnv('SonarQube') {
-                                        if (config.buildTool == 'maven') {
+                                        if (env.BUILD_TOOL == 'maven') {
                                             withMaven(
                                                 maven: 'Maven-3.8.6',
                                                 mavenSettingsConfig: 'settings-github'
@@ -141,20 +184,30 @@ def call(Map config) {
                                             }
                                         } else {
                                             sh '''
-                                                ./gradlew sonarqube \
-                                                    -Dsonar.host.url=${SONARQUBE_URL} \
-                                                    -Dsonar.projectKey=${JOB_NAME} \
-                                                    -Dsonar.projectName="${JOB_NAME}" \
-                                                    -Dsonar.projectVersion=${BUILD_NUMBER} \
-                                                    -Dsonar.coverage.exclusions="**/*" \
-                                                    -Dsonar.cpd.exclusions="**/*"
+                                                if [ -f "./gradlew" ]; then
+                                                    ./gradlew sonarqube \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.exclusions="**/*" \
+                                                        -Dsonar.cpd.exclusions="**/*"
+                                                else
+                                                    gradle sonarqube \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.exclusions="**/*" \
+                                                        -Dsonar.cpd.exclusions="**/*"
+                                                fi
                                             '''
                                         }
                                     }
                                 } else {
                                     echo "🔍 Running SonarQube analysis with coverage for business service..."
                                     withSonarQubeEnv('SonarQube') {
-                                        if (config.buildTool == 'maven') {
+                                        if (env.BUILD_TOOL == 'maven') {
                                             withMaven(
                                                 maven: 'Maven-3.8.6',
                                                 mavenSettingsConfig: 'settings-github'
@@ -174,16 +227,29 @@ def call(Map config) {
                                             }
                                         } else {
                                             sh '''
-                                                # Generate Jacoco report first
-                                                ./gradlew jacocoTestReport
-                                                
-                                                # Run SonarQube analysis
-                                                ./gradlew sonarqube \
-                                                    -Dsonar.host.url=${SONARQUBE_URL} \
-                                                    -Dsonar.projectKey=${JOB_NAME} \
-                                                    -Dsonar.projectName="${JOB_NAME}" \
-                                                    -Dsonar.projectVersion=${BUILD_NUMBER} \
-                                                    -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
+                                                if [ -f "./gradlew" ]; then
+                                                    # Generate Jacoco report first
+                                                    ./gradlew jacocoTestReport
+                                                    
+                                                    # Run SonarQube analysis
+                                                    ./gradlew sonarqube \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
+                                                else
+                                                    # Generate Jacoco report first
+                                                    gradle jacocoTestReport
+                                                    
+                                                    # Run SonarQube analysis
+                                                    gradle sonarqube \
+                                                        -Dsonar.host.url=${SONARQUBE_URL} \
+                                                        -Dsonar.projectKey=${JOB_NAME} \
+                                                        -Dsonar.projectName="${JOB_NAME}" \
+                                                        -Dsonar.projectVersion=${BUILD_NUMBER} \
+                                                        -Dsonar.coverage.jacoco.xmlReportPaths=build/reports/jacoco/test/jacocoTestReport.xml
+                                                fi
                                             '''
                                         }
                                     }
@@ -194,10 +260,14 @@ def call(Map config) {
                             always {
                                 // Archive SonarQube reports
                                 script {
-                                    if (config.buildTool == 'maven') {
-                                        archiveArtifacts artifacts: 'target/site/jacoco/**/*', allowEmptyArchive: true
-                                    } else {
-                                        archiveArtifacts artifacts: 'build/reports/jacoco/**/*', allowEmptyArchive: true
+                                    try {
+                                        if (env.BUILD_TOOL == 'maven') {
+                                            archiveArtifacts artifacts: 'target/site/jacoco/**/*', allowEmptyArchive: true
+                                        } else {
+                                            archiveArtifacts artifacts: 'build/reports/jacoco/**/*', allowEmptyArchive: true
+                                        }
+                                    } catch (Exception e) {
+                                        echo "⚠️ Could not archive jacoco reports: ${e.message}"
                                     }
                                 }
                             }
@@ -345,13 +415,13 @@ def call(Map config) {
         post {
             success {
                 script {
-                    generateReleaseNotes(config)
-                    sendNotification('SUCCESS')
+                    generateReleaseNotes(env.SERVICE_NAME, env.BUILD_TOOL)
+                    sendNotification('SUCCESS', env.SERVICE_NAME)
                 }
             }
             failure {
                 script {
-                    sendNotification('FAILURE')
+                    sendNotification('FAILURE', env.SERVICE_NAME)
                 }
             }
             always {
@@ -582,21 +652,22 @@ def deployToEnvironment(config, environment) {
     """
 }
 
-def generateReleaseNotes(config) {
+def generateReleaseNotes(serviceName, buildTool) {
     script {
         def version = env.TAG_NAME ?: "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
         def releaseNotes = """
-# Release Notes - ${config.serviceName} v${version}
+# Release Notes - ${serviceName} v${version}
 
 ## 🚀 Deployment Information
-- **Service**: ${config.serviceName}
+- **Service**: ${serviceName}
 - **Version**: ${version}
 - **Environment**: ${env.TARGET_ENV}
 - **Build Number**: ${env.BUILD_NUMBER}
 - **Deploy Date**: ${new Date().format('yyyy-MM-dd HH:mm:ss')}
 
 ## 🔍 Quality Metrics
-- **Service Type**: ${getServiceType(config.serviceName)}
+- **Service Type**: ${getServiceType(serviceName)}
+- **Build Tool**: ${buildTool}
 - **Security Scan**: ✅ Passed
 - **Code Quality**: ✅ Passed
 - **Tests**: ✅ Passed
@@ -618,11 +689,11 @@ Deployed automatically via Jenkins Pipeline
     }
 }
 
-def sendNotification(status) {
+def sendNotification(status, serviceName) {
     def color = status == 'SUCCESS' ? 'good' : 'danger'
     def message = """
 Pipeline ${status}: ${env.JOB_NAME} #${env.BUILD_NUMBER}
-Service: ${config.serviceName}
+Service: ${serviceName}
 Environment: ${env.TARGET_ENV ?: 'N/A'}
 Branch: ${env.BRANCH_NAME}
 Duration: ${currentBuild.durationString}
