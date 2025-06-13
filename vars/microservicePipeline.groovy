@@ -660,6 +660,7 @@ def runPostDeployTests(config) {
 
 def deployToEnvironment(config, environment) {
     echo "🚀 Deploying to ${environment}..."
+    
     def kubeContexts = [
         'develop': 'aks-ecommercecozam-dev',
         'stage': 'aks-ecommercecozam-stage',
