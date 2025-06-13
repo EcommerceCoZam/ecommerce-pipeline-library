@@ -61,7 +61,7 @@ def call(Map config) {
                                 if (env.BUILD_TOOL == 'maven') {
                                     withMaven(
                                         maven: 'Maven-3.8.6',
-                                        mavenSettingsConfig: 'settings-github'
+                                        mavenSettingsConfig: '155195e2-78e9-4ecc-b3d9-5a7d3f0101cf'  
                                     ) {
                                         sh '''
                                             mvn test
@@ -119,7 +119,7 @@ def call(Map config) {
                                 if (env.BUILD_TOOL == 'maven') {
                                     withMaven(
                                         maven: 'Maven-3.8.6',
-                                        mavenSettingsConfig: 'settings-github'
+                                        mavenSettingsConfig: '155195e2-78e9-4ecc-b3d9-5a7d3f0101cf'
                                     ) {
                                         sh 'mvn clean package -DskipTests'
                                     }
@@ -170,7 +170,7 @@ def call(Map config) {
                                         if (env.BUILD_TOOL == 'maven') {
                                             withMaven(
                                                 maven: 'Maven-3.8.6',
-                                                mavenSettingsConfig: 'settings-github'
+                                                mavenSettingsConfig: '155195e2-78e9-4ecc-b3d9-5a7d3f0101cf'  
                                             ) {
                                                 sh '''
                                                     mvn sonar:sonar \
@@ -210,7 +210,7 @@ def call(Map config) {
                                         if (env.BUILD_TOOL == 'maven') {
                                             withMaven(
                                                 maven: 'Maven-3.8.6',
-                                                mavenSettingsConfig: 'settings-github'
+                                                mavenSettingsConfig: '155195e2-78e9-4ecc-b3d9-5a7d3f0101cf'  
                                             ) {
                                                 sh '''
                                                     # Generate Jacoco report first
