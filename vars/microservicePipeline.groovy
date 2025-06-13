@@ -658,7 +658,7 @@ def deployToEnvironment(config, environment) {
             
             # Clean previous clone if exists
             rm -rf helm
-            git clone https://github.com/EstebanGZam/helm-microservices-app.git helm
+            git clone https://github.com/EcommerceCoZam/ecommerce-helm-charts.git helm
             cd helm
             
             # Deploy/upgrade specific service with Helm
