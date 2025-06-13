@@ -443,12 +443,31 @@ def buildAndSecurityScanImage(config) {
     
     withCredentials([file(credentialsId: 'gcp-registry-credentials', variable: 'GCP_KEY')]) {
         sh """
+            echo '🔍 Debugging GCP and Docker configuration...'
+            echo "Registry Host: ${registryHost}"
+            echo "Image Name: ${imageName}" 
+            echo "Full Image Tag: ${fullImageTag}"
+            echo "GCP Key file exists: \$(test -f "\$GCP_KEY" && echo "YES" || echo "NO")"
+            
             echo '🔐 Authenticating with GCP...'
             gcloud auth activate-service-account --key-file=\$GCP_KEY
+            
+            echo '📋 Verifying GCP authentication...'
+            gcloud auth list
+            echo "Current GCP project: \$(gcloud config get-value project)"
+            
+            echo '🔧 Configuring Docker for Artifact Registry...'
             gcloud auth configure-docker ${registryHost} --quiet
-
+            
+            echo '📊 Verifying registry access...'
+            gcloud artifacts repositories describe ecommerce-microservices --location=southamerica-east1 --project=certain-perigee-459722-b4 || echo "Registry describe failed"
+            
             echo '🐳 Building Docker image...'
-            docker build -t ${fullImageTag} .
+            docker build -t ${fullImageTag} . --no-cache
+            
+            echo '✅ Verifying image was built...'
+            docker images | grep "${config.serviceName}" || echo "Image not found in local docker images"
+            docker inspect ${fullImageTag} || echo "Image inspect failed"
             
             echo '🛡️ Scanning image with Trivy via Docker exec...'
             # Scan the built image using trivy-scanner container
@@ -466,9 +485,36 @@ def buildAndSecurityScanImage(config) {
             docker cp trivy-scanner:/tmp/trivy-image-report.json . || echo "Could not copy scan results"
 
             echo '📤 Pushing image to registry...'
-            docker push ${fullImageTag}
-            docker tag ${fullImageTag} ${imageName}:${env.TARGET_ENV}-latest
-            docker push ${imageName}:${env.TARGET_ENV}-latest
+            echo "Attempting to push: ${fullImageTag}"
+            
+            # Test docker login first
+            echo "Testing Docker registry authentication..."
+            docker pull hello-world
+            docker tag hello-world ${registryHost}/certain-perigee-459722-b4/ecommerce-microservices/test:latest || echo "Test tag failed"
+            docker push ${registryHost}/certain-perigee-459722-b4/ecommerce-microservices/test:latest || echo "Test push failed"
+            docker rmi ${registryHost}/certain-perigee-459722-b4/ecommerce-microservices/test:latest || true
+            
+            # Now try the actual push
+            if docker push ${fullImageTag}; then
+                echo "✅ Successfully pushed ${fullImageTag}"
+                
+                # Tag and push latest for the environment
+                docker tag ${fullImageTag} ${imageName}:${env.TARGET_ENV}-latest
+                docker push ${imageName}:${env.TARGET_ENV}-latest
+                echo "✅ Successfully pushed ${imageName}:${env.TARGET_ENV}-latest"
+                
+                # Verify the image exists in the registry
+                echo '🔍 Verifying image in registry...'
+                gcloud artifacts docker images list ${registryHost}/certain-perigee-459722-b4/ecommerce-microservices --include-tags | grep "${config.serviceName}" || echo "Image not found in registry list"
+                
+            else
+                echo "❌ Failed to push image to registry"
+                echo "Debugging docker and gcloud state..."
+                docker info | head -20
+                gcloud auth list
+                gcloud config list
+                exit 1
+            fi
         """
     }
     
@@ -691,7 +737,7 @@ def deployToEnvironment(config, environment) {
                         -n ecommerce
                     
                     echo "⏳ Waiting for rollout to complete..."
-                    # kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
+                    kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
                     
                     echo "✅ Image updated successfully via kubectl set image"
                     kubectl get deployment ${config.serviceName} -n ecommerce -o wide
@@ -722,7 +768,7 @@ def deployToEnvironment(config, environment) {
             
             # Wait for deployment to be ready
             echo '⏳ Waiting for deployment to be ready...'
-            # kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
+            kubectl rollout status deployment/${config.serviceName} -n ecommerce --timeout=300s
             
             # Verify deployment
             echo "✅ Verifying deployment..."
