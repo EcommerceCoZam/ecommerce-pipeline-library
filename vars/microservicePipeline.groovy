@@ -164,7 +164,7 @@ def deployToEnvironment(config, environment) {
                 
             # Verify deployment
             kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
-            kubectl rollout status deployment/ecommerce-app-${environment}-${config.serviceName}-${config.serviceName} -n ecommerce
+            kubectl rollout status deployment/ecommerce-app-${config.serviceName}-${config.serviceName} -n ecommerce
         """
     }
 }
