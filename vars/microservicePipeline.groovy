@@ -8,7 +8,7 @@ def call(Map config) {
         }
         
         environment {
-            REGISTRY = "southamerica-east1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices"            
+            REGISTRY = "southamerica-east1-docker.pkg.dev/certain-perigee-459722-b4/ecommerce-microservices"
             IMAGE_TAG = "${env.BRANCH_NAME}-${env.BUILD_NUMBER}"
             TARGET_ENV = determineEnvironment()
             TRIVY_SERVER = "http://34.73.71.30:9999"
@@ -316,9 +316,48 @@ def call(Map config) {
             
             stage('Quality Gate') {
                 steps {
-                    script {
-                        echo "⏭️ Skipping Quality Gate check for now..."
-                        echo "✅ SonarQube analysis completed, continuing pipeline"
+                    timeout(time: 3, unit: 'MINUTES') {
+                        script {
+                            echo "⏳ Waiting for SonarQube Quality Gate..."
+                            try {
+                                def qg = waitForQualityGate()
+                                if (qg.status != 'OK') {
+                                    echo "⚠️ Quality Gate failed: ${qg.status}"
+                                    if (env.TARGET_ENV == 'prod') {
+                                        error "❌ Quality Gate failure - blocking production deployment"
+                                    } else {
+                                        echo "🟡 Quality Gate failed but allowing deployment to ${env.TARGET_ENV}"
+                                    }
+                                } else {
+                                    echo "✅ Quality Gate passed successfully"
+                                }
+                            } catch (Exception e) {
+                                echo "⚠️ Quality Gate timeout or error: ${e.message}"
+                                if (env.TARGET_ENV == 'prod') {
+                                    error "❌ Quality Gate check failed for production"
+                                } else {
+                                    echo "🟡 Continuing despite Quality Gate timeout for ${env.TARGET_ENV}"
+                                }
+                            }
+                        }
+                    }
+                }
+                post {
+                    always {
+                        // Verification commands
+                        script {
+                            sh '''
+                                echo "🔍 Verification Commands:"
+                                echo "Jenkins SonarQube Plugin Check:"
+                                curl -s http://34.73.71.30:8080/pluginManager/api/json?depth=1 | grep -i sonar || echo "SonarQube plugin check failed"
+                                
+                                echo "SonarQube Server Status:"
+                                curl -f http://34.73.71.30:9000/api/system/status || echo "SonarQube server check failed"
+                                
+                                echo "Trivy Server Health:"
+                                docker exec trivy-scanner trivy version || echo "Trivy container check failed"
+                            '''
+                        }
                     }
                 }
             }
@@ -591,29 +630,29 @@ def runPostDeployTests(config) {
     sh """
         kubectl config use-context ${kubeContexts[env.TARGET_ENV]}
         
-        # Health check
+        # Health check with simplified names
         kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
         
-        # Wait for deployment to be ready
-        kubectl wait --for=condition=available --timeout=300s deployment/ecommerce-app-${env.TARGET_ENV}-${config.serviceName}-${config.serviceName} -n ecommerce
+        # Wait for deployment to be ready (simplified name)
+        kubectl wait --for=condition=available --timeout=300s deployment/${config.serviceName} -n ecommerce
         
         # Service-specific health endpoints
         case "${config.serviceName}" in
             "api-gateway")
                 echo "🚪 Testing API Gateway health..."
-                kubectl exec -n ecommerce deployment/ecommerce-app-${env.TARGET_ENV}-${config.serviceName}-${config.serviceName} -- curl -f http://localhost:8222/actuator/health
+                kubectl exec -n ecommerce deployment/${config.serviceName} -- curl -f http://localhost:8222/actuator/health
                 ;;
             "service-discovery")
                 echo "🔍 Testing Service Discovery health..."
-                kubectl exec -n ecommerce deployment/ecommerce-app-${env.TARGET_ENV}-${config.serviceName}-${config.serviceName} -- curl -f http://localhost:8761/actuator/health
+                kubectl exec -n ecommerce deployment/${config.serviceName} -- curl -f http://localhost:8761/actuator/health
                 ;;
             "cloud-config")
                 echo "⚙️ Testing Cloud Config health..."
-                kubectl exec -n ecommerce deployment/ecommerce-app-${env.TARGET_ENV}-${config.serviceName}-${config.serviceName} -- curl -f http://localhost:9296/actuator/health
+                kubectl exec -n ecommerce deployment/${config.serviceName} -- curl -f http://localhost:9296/actuator/health
                 ;;
             *)
                 echo "🏥 Testing business service health..."
-                kubectl exec -n ecommerce deployment/ecommerce-app-${env.TARGET_ENV}-${config.serviceName}-${config.serviceName} -- curl -f http://localhost:8080/actuator/health
+                kubectl exec -n ecommerce deployment/${config.serviceName} -- curl -f http://localhost:8080/actuator/health
                 ;;
         esac
     """
@@ -621,10 +660,9 @@ def runPostDeployTests(config) {
 
 def deployToEnvironment(config, environment) {
     echo "🚀 Deploying to ${environment}..."
-    
     def kubeContexts = [
         'develop': 'aks-ecommercecozam-dev',
-        'stage': 'aks-ecommercecozam-stage', 
+        'stage': 'aks-ecommercecozam-stage',
         'prod': 'aks-ecommercecozam-prod'
     ]
     
@@ -661,8 +699,8 @@ def deployToEnvironment(config, environment) {
             git clone https://github.com/EcommerceCoZam/ecommerce-helm-charts.git helm
             cd helm
             
-            # Deploy/upgrade specific service with Helm
-            helm upgrade --install ecommerce-app-${environment}-${config.serviceName} \\
+            # Deploy/upgrade specific service with SIMPLE NAME
+            helm upgrade --install ${config.serviceName} \\
                 ./ecommerce-app/charts/${config.serviceName} \\
                 -n ecommerce \\
                 --set global.environment=${environment} \\
@@ -670,12 +708,15 @@ def deployToEnvironment(config, environment) {
                 --set global.imagePullPolicy=Always \\
                 --set image.repository=${env.REGISTRY}/${config.serviceName} \\
                 --set image.tag=${env.IMAGE_TAG} \\
+                --set nameOverride=${config.serviceName} \\
+                --set fullnameOverride=${config.serviceName} \\
+                --set service.name=${config.serviceName} \\
                 --wait \\
                 --timeout=5m
-                
-            # Verify deployment
+            
+            # Verify deployment with simplified names
             kubectl get pods -n ecommerce -l app.kubernetes.io/name=${config.serviceName}
-            kubectl rollout status deployment/ecommerce-app-${environment}-${config.serviceName} -n ecommerce
+            kubectl rollout status deployment/${config.serviceName} -n ecommerce
         """
     }
 }
